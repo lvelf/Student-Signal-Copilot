@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Student Signal Copilot · Work Orders</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <div>
+        <h1>Student Signal Copilot</h1>
+        <p>CriticalAsset · live work orders · <span id="portfolio">40 Irving Place</span></p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <nav class="nav">
+        <a href="/" class="active">Work Orders</a>
+        <a href="/copilot">Copilot</a>
+      </nav>
+      <span id="conn" class="conn conn--loading">connecting…</span>
+      <button id="refresh" class="btn">Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Counter row -->
+    <section id="counters" class="counters"></section>
+
+    <div class="layout">
+      <div class="layout-main">
+        <!-- Filters -->
+        <section class="toolbar">
+          <input id="search" class="search" type="search" placeholder="Search title, asset, description…" />
+          <select id="f-stage" class="filter"><option value="">All stages</option></select>
+          <select id="f-severity" class="filter"><option value="">All severities</option></select>
+          <select id="f-category" class="filter"><option value="">All categories</option></select>
+          <label class="group-toggle"><input type="checkbox" id="group" /> Group by category</label>
+        </section>
+
+        <!-- Table -->
+        <section class="table-wrap">
+          <table class="wo-table">
+            <thead>
+              <tr>
+                <th>Work Order</th>
+                <th>Severity</th>
+                <th>Priority</th>
+                <th>Category</th>
+                <th>Asset</th>
+                <th>Location</th>
+                <th>Due</th>
+                <th>Stage</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+          <p id="empty" class="empty" hidden>No work orders match your filters.</p>
+        </section>
+      </div>
+
+      <!-- Sidebar: bonus insights -->
+      <aside class="sidebar">
+        <div class="card">
+          <h3>Top buildings</h3>
+          <ul id="top-buildings" class="bars"></ul>
+        </div>
+        <div class="card">
+          <h3>By category</h3>
+          <ul id="by-category" class="bars"></ul>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <!-- Detail drawer -->
+  <div id="overlay" class="overlay" hidden></div>
+  <aside id="drawer" class="drawer" hidden></aside>
+
+  <script src="/app.js"></script>
+</body>
+</html>

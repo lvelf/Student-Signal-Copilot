@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Student Signal Copilot · Field Intake</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <div>
+        <h1>Student Signal Copilot</h1>
+        <p>Challenge 02 · field truth → AI workflow · <span id="portfolio">40 Irving Place</span></p>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <nav class="nav">
+        <a href="/">Work Orders</a>
+        <a href="/copilot" class="active">Copilot</a>
+      </nav>
+      <span id="llm" class="conn conn--loading">…</span>
+    </div>
+  </header>
+
+  <main class="copilot">
+    <!-- LEFT: intake + inbox -->
+    <aside class="intake">
+      <div class="card">
+        <h3>Report what you see</h3>
+        <p class="muted small">You are the first sensor in the building. One sentence is enough — the AI structures the rest.</p>
+        <textarea id="text" rows="4" placeholder="e.g. The 2nd-floor bathroom by the gym smells like sewage again and the floor is wet near the drain. It's been like this since Monday."></textarea>
+        <input id="locationHint" type="text" placeholder="Where exactly? (optional)" />
+        <input id="whoAffected" type="text" placeholder="Who is affected? (optional)" />
+        <label class="check"><input type="checkbox" id="stillHappening" checked /> Still happening right now</label>
+        <label class="check file"><input type="checkbox" id="hasPhoto" /> Attach photo <span class="muted small">(filename only, demo)</span></label>
+        <button id="submit" class="btn btn-primary">Submit signal →</button>
+      </div>
+
+      <div class="card">
+        <h3>Try a sample</h3>
+        <div id="samples" class="samples"></div>
+      </div>
+
+      <div class="card">
+        <h3>Operator inbox</h3>
+        <ul id="inbox" class="inbox"><li class="muted small">No signals yet.</li></ul>
+      </div>
+    </aside>
+
+    <!-- RIGHT: pipeline + result -->
+    <section class="stage">
+      <!-- Empty -->
+      <div id="empty-state" class="stage-empty">
+        <div class="diagram-hint">
+          <h2>A 7-agent workflow, not a chatbot.</h2>
+          <p class="muted">Submit a field observation on the left. A supervisor agent orchestrates specialists — extraction, grounding, enrichment, compliance, review, debate, recommendation — then hands you an auditable, confidence-labeled work order and closes the loop with the student.</p>
+        </div>
+      </div>
+
+      <!-- Pipeline (live) -->
+      <div id="pipeline" class="pipeline" hidden>
+        <h3>Supervisor agent · orchestration trace</h3>
+        <ol id="pipeline-nodes" class="pipeline-nodes"></ol>
+      </div>
+
+      <!-- Result -->
+      <div id="result" class="result" hidden></div>
+    </section>
+  </main>
+
+  <script src="/copilot.js"></script>
+</body>
+</html>
