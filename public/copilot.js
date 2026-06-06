@@ -27,14 +27,19 @@ const SAMPLES = [
 
 const LABEL_CLASS = { Verified: "lbl-verified", Likely: "lbl-likely", Inferred: "lbl-inferred", Missing: "lbl-missing", "Needs inspection": "lbl-inspect" };
 
+const shortModel = (m) => String(m || "").replace(/^claude-/, "").replace(/-\d{8}$/, "").replace(/-4-\d$/, (x) => x); // e.g. haiku-4-5
+const modelTag = (m) => (!m || m === "rule" ? "rule" : /haiku/.test(m) ? "haiku" : /sonnet/.test(m) ? "sonnet" : /opus/.test(m) ? "opus" : "claude");
+
 let currentRecord = null;
 
 // ---------- init ----------
 async function init() {
   const health = await fetch("/api/health").then((r) => r.json()).catch(() => null);
   const llm = $("#llm");
-  if (health?.llm?.enabled) { llm.className = "conn conn--ok"; llm.textContent = `Claude · ${health.llm.model}`; }
-  else { llm.className = "conn conn--warn"; llm.textContent = "stub mode (no key)"; }
+  if (health?.llm?.enabled) {
+    llm.className = "conn conn--ok";
+    llm.textContent = `${shortModel(health.llm.heavy)} (overview) · ${shortModel(health.llm.light)} (specialists)`;
+  } else { llm.className = "conn conn--warn"; llm.textContent = "stub mode (no key)"; }
 
   $("#samples").innerHTML = SAMPLES.map((s, i) => `<button class="sample" data-i="${i}">${esc(s.label)}</button>`).join("");
   $("#samples").querySelectorAll(".sample").forEach((b) =>
@@ -48,7 +53,29 @@ async function init() {
   );
 
   $("#submit").addEventListener("click", submit);
+  $("#run-overview").addEventListener("click", runOverview);
   loadInbox();
+}
+
+// ---------- meta-overview agent (cross-signal) ----------
+async function runOverview() {
+  const box = $("#overview");
+  box.innerHTML = `<p class="muted small">Overview agent watching across all signals…</p>`;
+  try {
+    const o = await fetch("/api/overview").then((r) => r.json());
+    if (!o.patterns?.length && !o.portfolioSummary) { box.innerHTML = `<p class="muted small">No signals yet.</p>`; return; }
+    box.innerHTML = `
+      <div class="ov-summary">${esc(o.portfolioSummary)}</div>
+      ${o.urgentIds?.length ? `<div class="ov-urgent">🔺 ${o.urgentIds.length} signal(s) surfaced as URGENT</div>` : ""}
+      ${(o.patterns || []).map((p) => `<div class="ov-pattern">
+        <div class="ov-title">${esc(p.title)} <span class="muted small">· ${p.recordIds.length} reports</span></div>
+        <div class="muted small">${esc(p.insight)}</div>
+        <div class="ov-rec">→ ${esc(p.recommendation)}</div>
+      </div>`).join("")}
+      <div class="src src-${modelTag(o.model)}" style="margin-top:8px">${modelTag(o.model)} · cross-signal</div>`;
+  } catch {
+    box.innerHTML = `<p class="muted small">Overview failed.</p>`;
+  }
 }
 
 // ---------- submit + stream ----------
@@ -99,7 +126,7 @@ function onStep(step) {
     li.classList.remove("active");
     li.classList.add(step.ran ? "done" : "skipped");
     li.querySelector(".pmeta").innerHTML = step.ran
-      ? `<span class="src src-${step.source}">${step.source === "claude" ? "Claude" : "rule"}</span><span class="ms">${(step.ms / 1000).toFixed(1)}s</span>`
+      ? `<span class="src src-${modelTag(step.model)}">${modelTag(step.model)}</span><span class="ms">${(step.ms / 1000).toFixed(1)}s</span>`
       : `<span class="ms">skipped</span>`;
     li.title = step.reason;
   }
@@ -123,6 +150,7 @@ function renderResult(r) {
   const totalMs = r.trace.reduce((s, t) => s + t.ms, 0);
 
   $("#result").innerHTML = `
+    ${r.urgent ? `<div class="urgent-banner">🔺 URGENT — ${esc(r.urgentReason)}</div>` : ""}
     ${c.escalate ? `<div class="escalate-banner">⚠ Escalate — ${esc(c.escalationReason)}</div>` : ""}
 
     <div class="res-head">
@@ -131,9 +159,10 @@ function renderResult(r) {
         <p class="muted small">from signal: "${esc(r.signal.text)}"</p>
       </div>
       <div class="res-badges">
-        <span class="badge sev-${i.severity}">${cap(rec.severity)}</span>
+        ${r.urgent ? `<span class="badge sev-critical">URGENT</span>` : ""}
+        <span class="badge sev-${rec.severity}">${cap(rec.severity)}</span>
         <span class="badge sev-unknown">${esc(pretty(i.category))}</span>
-        <span class="src src-${r.llmSource}">${r.llmSource === "claude" ? "Claude" : "rule-based"} · ${(totalMs / 1000).toFixed(1)}s</span>
+        <span class="src src-${r.llmSource}">${(totalMs / 1000).toFixed(1)}s</span>
       </div>
     </div>
 
@@ -200,7 +229,7 @@ function renderResult(r) {
     ${section("Supervisor trace", "Every routing decision, auditable.", `
       <table class="tracetbl">${r.trace.map((t) => `<tr class="${t.ran ? "" : "trace-skip"}">
         <td>${esc(t.agent)}</td>
-        <td>${t.ran ? `<span class="src src-${t.source}">${t.source === "claude" ? "Claude" : "rule"}</span>` : `<span class="muted small">skipped</span>`}</td>
+        <td>${t.ran ? `<span class="src src-${modelTag(t.model)}">${modelTag(t.model)}</span>` : `<span class="muted small">skipped</span>`}</td>
         <td class="muted small">${esc(t.reason)}</td>
         <td class="ms">${t.ran ? (t.ms / 1000).toFixed(1) + "s" : ""}</td>
       </tr>`).join("")}</table>
@@ -261,9 +290,11 @@ async function loadInbox() {
   if (!data) return;
   const inbox = $("#inbox");
   if (!data.records.length) { inbox.innerHTML = `<li class="muted small">No signals yet.</li>`; return; }
-  inbox.innerHTML = data.records.map((r) => `<li class="inbox-item" data-id="${r.id}">
-    <div class="ix-top"><span class="badge sev-${r.severity}">${cap(r.severity)}</span>
-    <span class="vstatus vs-${r.verification}">${r.verification === "pending" ? "open" : r.verification.replace(/_/g, " ")}</span></div>
+  inbox.innerHTML = data.records.map((r) => `<li class="inbox-item ${r.urgent ? "is-urgent" : ""}" data-id="${r.id}">
+    <div class="ix-top">
+      <span>${r.urgent ? `<span class="badge sev-critical">URGENT</span> ` : ""}<span class="badge sev-${r.severity}">${cap(r.severity)}</span></span>
+      <span class="vstatus vs-${r.verification}">${r.verification === "pending" ? "open" : r.verification.replace(/_/g, " ")}</span>
+    </div>
     <div class="ix-text">${esc(r.text.slice(0, 70))}${r.text.length > 70 ? "…" : ""}</div>
     <div class="muted small">${esc(pretty(r.category))} · ${esc(r.location)} ${r.escalate ? "· ⚠ escalated" : ""}</div>
   </li>`).join("");

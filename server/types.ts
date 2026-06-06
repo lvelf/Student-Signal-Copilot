@@ -106,6 +106,8 @@ export interface TraceStep {
   ran: boolean;
   reason: string; // why the supervisor ran (or skipped) it
   source: "claude" | "stub";
+  model: string; // which model did the work (e.g. haiku / sonnet / rule)
+  tier?: "light" | "heavy";
   ms: number;
 }
 
@@ -124,6 +126,17 @@ export interface ProcessedRecord {
   recommendation: Recommendation;
   trace: TraceStep[];
   llmSource: "claude" | "stub";
+  urgent: boolean; // guaranteed URGENT tag (deterministic): high/critical + recurring + still happening
+  urgentReason: string;
   verification: { status: VerificationStatus; history: { status: VerificationStatus; at: string }[] };
   createdAt: string;
+}
+
+/** Output of the meta-overview agent — watches across ALL signals (cross-signal). */
+export interface Overview {
+  portfolioSummary: string;
+  urgentIds: string[]; // records the overview confirms must surface to the top
+  patterns: { title: string; recordIds: string[]; insight: string; recommendation: string }[];
+  model: string;
+  source: "claude" | "stub";
 }

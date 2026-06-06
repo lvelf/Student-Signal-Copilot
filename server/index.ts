@@ -9,7 +9,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getWorkOrders, getAssets, type RawWorkOrder } from "./criticalasset.js";
-import { runPipeline } from "./pipeline.js";
+import { runPipeline, runOverview } from "./pipeline.js";
 import { verificationDecision } from "./agents.js";
 import { save, get, list, nextId } from "./store.js";
 import { llmInfo } from "./llm.js";
@@ -188,23 +188,35 @@ app.get("/api/signal/stream", async (req, res) => {
   res.end();
 });
 
-// Operator inbox — list processed signals (compact).
+// Operator inbox — list processed signals (compact), URGENT-first.
 app.get("/api/signals", (_req, res) => {
-  res.json({
-    llm: llmInfo,
-    records: list().map((r) => ({
+  const records = list()
+    .map((r) => ({
       id: r.id,
       text: r.signal.text,
       category: r.issue.category,
       severity: r.recommendation.severity,
       location: r.issue.location,
       escalate: r.compliance.escalate,
+      urgent: r.urgent,
+      recurring: r.issue.recurring,
       overallConfidence: r.review.overallConfidence,
       verification: r.verification.status,
       llmSource: r.llmSource,
       createdAt: r.createdAt,
-    })),
-  });
+    }))
+    .sort((a, b) => Number(b.urgent) - Number(a.urgent) || (a.createdAt < b.createdAt ? 1 : -1));
+  res.json({ llm: llmInfo, records });
+});
+
+// Meta-overview agent — cross-signal watch over the whole inbox (heavy model).
+app.get("/api/overview", async (_req, res) => {
+  try {
+    res.json(await runOverview());
+  } catch (err: any) {
+    console.error("[/api/overview]", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Full record with the complete agent trace.

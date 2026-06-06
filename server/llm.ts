@@ -11,7 +11,17 @@
  */
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
-const MODEL = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+
+// Tiered models: the cross-signal overview needs big-picture reasoning (expensive);
+// the narrowly-scoped specialists run on a cheap, fast small model. This is both
+// cheaper and faster than putting every agent on the large model.
+const MODEL_HEAVY = process.env.ANTHROPIC_MODEL_HEAVY ?? process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+const MODEL_LIGHT = process.env.ANTHROPIC_MODEL_LIGHT ?? "claude-haiku-4-5-20251001";
+
+export type Tier = "light" | "heavy";
+function modelFor(tier: Tier): string {
+  return tier === "heavy" ? MODEL_HEAVY : MODEL_LIGHT;
+}
 
 export function hasLLM(): boolean {
   return Boolean(API_KEY);
@@ -20,6 +30,8 @@ export function hasLLM(): boolean {
 export interface CompleteOptions<T> {
   system: string;
   prompt: string;
+  /** Which model tier: "light" (cheap small, default) or "heavy" (expensive, overview only). */
+  tier?: Tier;
   /** Deterministic fallback used when no key is set or the call fails. */
   stub: () => T;
   /** Light validation; if it throws we fall back to the stub. */
@@ -29,24 +41,28 @@ export interface CompleteOptions<T> {
 export interface CompleteResult<T> {
   result: T;
   source: "claude" | "stub";
+  model: string; // the model that produced it ("rule" for the stub)
+  tier: Tier;
 }
 
 export async function complete<T>(opts: CompleteOptions<T>): Promise<CompleteResult<T>> {
+  const tier: Tier = opts.tier ?? "light";
+  const model = modelFor(tier);
   if (!API_KEY) {
-    return { result: opts.stub(), source: "stub" };
+    return { result: opts.stub(), source: "stub", model: "rule", tier };
   }
   try {
-    const text = await callClaude(opts.system, opts.prompt);
+    const text = await callClaude(opts.system, opts.prompt, model);
     const parsed = extractJson(text);
     const result = opts.validate ? opts.validate(parsed) : (parsed as T);
-    return { result, source: "claude" };
+    return { result, source: "claude", model, tier };
   } catch (err) {
     console.error("[llm] Claude call failed, using stub:", (err as Error).message);
-    return { result: opts.stub(), source: "stub" };
+    return { result: opts.stub(), source: "stub", model: "rule", tier };
   }
 }
 
-async function callClaude(system: string, prompt: string): Promise<string> {
+async function callClaude(system: string, prompt: string, model: string): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -55,7 +71,7 @@ async function callClaude(system: string, prompt: string): Promise<string> {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       max_tokens: 1500,
       system: system + "\n\nRespond with ONLY a single valid JSON object. No prose, no markdown fences.",
       messages: [{ role: "user", content: prompt }],
@@ -89,4 +105,4 @@ function extractJson(text: string): any {
   throw new Error("unbalanced JSON in response");
 }
 
-export const llmInfo = { model: MODEL, enabled: hasLLM() };
+export const llmInfo = { heavy: MODEL_HEAVY, light: MODEL_LIGHT, enabled: hasLLM() };

@@ -15,10 +15,10 @@ import { getAssetsRich, type RichAsset } from "./criticalasset.js";
 import { getPublicContext } from "./publicData.js";
 import {
   matchAssets, extractionAgent, enrichmentAgent, reviewAgent, debateAgent,
-  complianceAgent, recommendationAgent,
+  complianceAgent, recommendationAgent, overviewAgent,
 } from "./agents.js";
-import { nextId } from "./store.js";
-import type { Signal, ProcessedRecord, TraceStep, Debate } from "./types.js";
+import { nextId, list } from "./store.js";
+import type { Signal, ProcessedRecord, TraceStep, Debate, Overview } from "./types.js";
 
 // Cache the building's assets so we don't refetch on every signal.
 let assetCache: { at: number; assets: RichAsset[] } | null = null;
@@ -38,10 +38,10 @@ function now(): number {
 export async function runPipeline(signal: Signal, onStep?: (s: TraceStep) => void): Promise<ProcessedRecord> {
   const trace: TraceStep[] = [];
   const record = (s: TraceStep) => { trace.push(s); onStep?.(s); };
-  const step = async <T>(agent: string, reason: string, fn: () => Promise<{ result: T; source: "claude" | "stub" }>): Promise<T> => {
+  const step = async <T>(agent: string, reason: string, fn: () => Promise<{ result: T; source: "claude" | "stub"; model: string; tier?: "light" | "heavy" }>): Promise<T> => {
     const t0 = now();
-    const { result, source } = await fn();
-    record({ agent, ran: true, reason, source, ms: now() - t0 });
+    const { result, source, model, tier } = await fn();
+    record({ agent, ran: true, reason, source, model, tier, ms: now() - t0 });
     return result;
   };
 
@@ -57,11 +57,12 @@ export async function runPipeline(signal: Signal, onStep?: (s: TraceStep) => voi
     ran: true,
     reason: assetMatches.length ? `Matched ${assetMatches.length} real CriticalAsset asset(s) to anchor the issue.` : "No confident asset match — downstream agents flag this as needing inspection.",
     source: "stub",
+    model: "rule",
     ms: now() - tGround,
   });
   const tPub = now();
   const publicRefs = await getPublicContext(BUILDING_ADDRESS, issue.category);
-  record({ agent: "PublicData", ran: true, reason: publicRefs.length ? `Pulled ${publicRefs.length} public source(s) (NYC DOB/311).` : "No public records retrievable; enrichment proceeds on asset history.", source: "stub", ms: now() - tPub });
+  record({ agent: "PublicData", ran: true, reason: publicRefs.length ? `Pulled ${publicRefs.length} public source(s) (NYC DOB/311).` : "No public records retrievable; enrichment proceeds on asset history.", source: "stub", model: "rule", ms: now() - tPub });
 
   // 3. Enrichment ‖ Compliance ‖ Review — all depend only on grounding, so run concurrently.
   const [enrichment, compliance, review] = await Promise.all([
@@ -75,12 +76,27 @@ export async function runPipeline(signal: Signal, onStep?: (s: TraceStep) => voi
   const [debateResult, recommendation] = await Promise.all([
     review.rootCauseUncertain
       ? step("Debate", "Review flagged root cause as UNCERTAIN → run a root-cause debate to expose reasoning.", () => debateAgent(issue, assetMatches))
-      : Promise.resolve(null).then((v) => { record({ agent: "Debate", ran: false, reason: "Root cause is clear enough — debate skipped to keep the trace lean.", source: "stub", ms: 0 }); return v; }),
+      : Promise.resolve(null).then((v) => { record({ agent: "Debate", ran: false, reason: "Root cause is clear enough — debate skipped to keep the trace lean.", source: "stub", model: "rule", ms: 0 }); return v; }),
     step("Recommendation", "Compose the cleaned, actionable work order + closure question.", () => recommendationAgent(signal, issue, assetMatches, review, compliance)),
   ]);
   debate = debateResult;
 
   const llmSource: "claude" | "stub" = trace.some((t) => t.source === "claude") ? "claude" : "stub";
+
+  // Deterministic severity floor: if the Compliance agent escalated (a safety/regulatory
+  // trigger), the issue is high severity by definition — don't let a model's softer
+  // severity guess undersell it. This keeps the URGENT guarantee robust to model variance.
+  if (compliance.escalate && (recommendation.severity === "low" || recommendation.severity === "medium")) {
+    recommendation.severity = "high";
+  }
+
+  // Guaranteed URGENT tag (deterministic, not LLM-dependent): a high/critical issue that
+  // is recurring and still happening can never silently sit in the backlog.
+  const stillHappening = signal.stillHappening !== false;
+  const urgent = (recommendation.severity === "high" || recommendation.severity === "critical") && issue.recurring && stillHappening;
+  const urgentReason = urgent
+    ? `${recommendation.severity} severity + recurring + still happening — guaranteed URGENT so it surfaces to the top.`
+    : "Does not meet the URGENT guarantee (needs high/critical + recurring + still happening).";
 
   const rec: ProcessedRecord = {
     id: nextId("rec"),
@@ -94,8 +110,35 @@ export async function runPipeline(signal: Signal, onStep?: (s: TraceStep) => voi
     recommendation,
     trace,
     llmSource,
+    urgent,
+    urgentReason,
     verification: { status: "pending", history: [] },
     createdAt: new Date().toISOString(),
   };
   return rec;
+}
+
+// Meta-overview: the cross-signal watch. Runs the only heavy-model agent over the
+// whole inbox and merges its result with the deterministic URGENT guarantee.
+export async function runOverview(): Promise<Overview> {
+  const records = list();
+  if (!records.length) {
+    return { portfolioSummary: "No signals yet.", urgentIds: [], patterns: [], model: "rule", source: "stub" };
+  }
+  const inputs = records.map((r) => ({
+    id: r.id,
+    text: r.signal.text,
+    category: r.issue.category,
+    location: r.issue.location,
+    severity: r.recommendation.severity,
+    recurring: r.issue.recurring,
+    urgent: r.urgent,
+    verification: r.verification.status,
+    createdAt: r.createdAt,
+  }));
+  const { result, model, source } = await overviewAgent(inputs);
+  // Union with the deterministic guarantee so nothing urgent is ever dropped.
+  const guaranteed = records.filter((r) => r.urgent).map((r) => r.id);
+  const urgentIds = [...new Set([...result.urgentIds, ...guaranteed])];
+  return { ...result, urgentIds, model, source };
 }

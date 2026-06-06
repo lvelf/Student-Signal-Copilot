@@ -12,7 +12,7 @@ import { complete, type CompleteResult } from "./llm.js";
 import type { RichAsset } from "./criticalasset.js";
 import type {
   Signal, StructuredIssue, AssetMatch, Obligation, Enrichment, PublicDataRef,
-  Review, Claim, Debate, Compliance, Recommendation, Severity,
+  Review, Claim, Debate, Compliance, Recommendation, Severity, Overview,
 } from "./types.js";
 
 // ============================================================
@@ -399,6 +399,65 @@ export async function recommendationAgent(
         studentStatusMessage: `Thanks — we logged your report about ${issue.location.toLowerCase()} and routed it to ${GROUPS[issue.category] ?? "Facilities"}. We'll check back with you to confirm it's actually fixed.`,
         closureQuestion: `Is the issue at ${issue.location} actually resolved now, still happening, or worse?`,
       };
+    },
+  });
+}
+
+// ============================================================
+// Meta-overview agent  (cross-signal watch — the ONLY heavy-model agent)
+// ============================================================
+
+/** Compact view of a record the overview agent reasons over. */
+export interface OverviewInput {
+  id: string;
+  text: string;
+  category: string;
+  location: string;
+  severity: string;
+  recurring: boolean;
+  urgent: boolean;
+  verification: string;
+  createdAt: string;
+}
+
+export async function overviewAgent(records: OverviewInput[]): Promise<CompleteResult<Overview>> {
+  const system =
+    "You are the meta-overview agent. Unlike the per-signal specialists, you watch the WHOLE portfolio across signals. Find systemic patterns (the same location/asset/category recurring across multiple reports), and guarantee that anything long-running + recurring + urgent surfaces to the top instead of staying buried in the backlog. You need both breadth and depth — this is why you run on the larger model.";
+  const prompt =
+    `All signals in the system:\n${records.map((r) => `- [${r.id}] sev=${r.severity} recurring=${r.recurring} urgent=${r.urgent} status=${r.verification} | ${r.category} @ ${r.location} :: ${r.text.slice(0, 90)}`).join("\n")}\n` +
+    `\nReturn JSON: { portfolioSummary: string, urgentIds: [recordId], patterns: [{title, recordIds:[id], insight, recommendation}] }. Group reports that point at the same underlying systemic issue.`;
+
+  return complete<Overview>({
+    system,
+    prompt,
+    tier: "heavy",
+    validate: (p) => ({
+      portfolioSummary: String(p.portfolioSummary ?? ""),
+      urgentIds: Array.isArray(p.urgentIds) ? p.urgentIds.map(String) : [],
+      patterns: Array.isArray(p.patterns) ? p.patterns.map((x: any) => ({ title: String(x.title), recordIds: (x.recordIds ?? []).map(String), insight: String(x.insight ?? ""), recommendation: String(x.recommendation ?? "") })) : [],
+      model: "",
+      source: "claude",
+    }),
+    stub: () => {
+      // Cluster by (category + coarse location) to find systemic patterns.
+      const groups = new Map<string, OverviewInput[]>();
+      for (const r of records) {
+        const key = `${r.category}|${r.location.toLowerCase().replace(/\d+/g, "").trim()}`;
+        (groups.get(key) ?? groups.set(key, []).get(key)!).push(r);
+      }
+      const patterns = [...groups.values()]
+        .filter((g) => g.length >= 2)
+        .map((g) => ({
+          title: `Recurring ${g[0].category} issue · ${g[0].location}`,
+          recordIds: g.map((r) => r.id),
+          insight: `${g.length} separate reports point at the same ${g[0].category} location. This is a systemic, recurring problem — not ${g.length} independent tickets.`,
+          recommendation: `Open one root-cause investigation for this location/asset and link all ${g.length} signals; do not close any until the underlying cause is resolved.`,
+        }));
+      const urgentIds = records.filter((r) => r.urgent).map((r) => r.id);
+      const summary =
+        `${records.length} signal(s) in the system; ${urgentIds.length} flagged URGENT (high/critical + recurring + still happening). ` +
+        (patterns.length ? `${patterns.length} systemic pattern(s) detected across signals — these cannot stay buried in the backlog.` : `No multi-report systemic clusters yet.`);
+      return { portfolioSummary: summary, urgentIds, patterns, model: "", source: "stub" };
     },
   });
 }
