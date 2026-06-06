@@ -226,18 +226,31 @@ app.get("/api/signals/:id", (req, res) => {
   res.json(r);
 });
 
-// Verification agent — student confirms reality; closes or reopens the loop.
+// Verification agent — student confirms reality, then rates satisfaction.
+// Accepts `status` (fixed|still_happening|worse) and/or a `satisfaction` rating (1-5),
+// so the loop closes on BOTH "did it get fixed" and "are you satisfied".
 app.post("/api/signals/:id/verify", (req, res) => {
   const r = get(req.params.id);
   if (!r) return res.status(404).json({ error: "not found" });
-  const status = req.body?.status as VerificationStatus;
-  if (!["fixed", "still_happening", "worse"].includes(status)) {
-    return res.status(400).json({ error: "status must be fixed | still_happening | worse" });
+  const status = req.body?.status as VerificationStatus | undefined;
+  const satisfaction = req.body?.satisfaction;
+
+  let decision = null;
+  if (status) {
+    if (!["fixed", "still_happening", "worse"].includes(status)) {
+      return res.status(400).json({ error: "status must be fixed | still_happening | worse" });
+    }
+    decision = verificationDecision(status as "fixed" | "still_happening" | "worse");
+    r.verification.status = status;
+    r.verification.history.push({ status, at: new Date().toISOString() });
+    if (decision.reopen && decision.newSeverity) r.recommendation.severity = decision.newSeverity;
   }
-  const decision = verificationDecision(status as "fixed" | "still_happening" | "worse");
-  r.verification.status = status;
-  r.verification.history.push({ status, at: new Date().toISOString() });
-  if (decision.reopen && decision.newSeverity) r.recommendation.severity = decision.newSeverity;
+  if (typeof satisfaction === "number" && satisfaction >= 1 && satisfaction <= 5) {
+    r.verification.satisfaction = Math.round(satisfaction);
+  }
+  if (!status && r.verification.satisfaction == null) {
+    return res.status(400).json({ error: "provide status and/or satisfaction (1-5)" });
+  }
   save(r);
   res.json({ decision, record: r });
 });

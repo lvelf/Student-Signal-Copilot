@@ -112,7 +112,7 @@ export async function runPipeline(signal: Signal, onStep?: (s: TraceStep) => voi
     llmSource,
     urgent,
     urgentReason,
-    verification: { status: "pending", history: [] },
+    verification: { status: "pending", satisfaction: null, history: [] },
     createdAt: new Date().toISOString(),
   };
   return rec;

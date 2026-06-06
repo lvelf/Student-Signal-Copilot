@@ -316,3 +316,10 @@ main { padding: 22px 28px 60px; max-width: 1400px; margin: 0 auto; }
 .ov-pattern { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 11px; margin-bottom: 8px; }
 .ov-title { font-weight: 600; font-size: 13px; margin-bottom: 4px; }
 .ov-rec { color: var(--accent); font-size: 12px; margin-top: 6px; }
+
+/* satisfaction survey */
+.sat-ask { margin-top: 12px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sat-btns { display: flex; gap: 8px; }
+.sat-btn { font-size: 22px; line-height: 1; background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.sat-btn:hover { border-color: var(--accent); transform: scale(1.08); }
+.sat-done { margin-top: 12px; font-size: 14px; background: rgba(37,99,235,.08); border: 1px solid rgba(37,99,235,.25); border-radius: 8px; padding: 9px 12px; }

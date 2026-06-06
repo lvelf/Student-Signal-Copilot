@@ -248,15 +248,22 @@ function section(title, sub, body) {
 }
 
 // ---------- verification loop ----------
+const SAT = [
+  { n: 1, emoji: "😞", label: "Unsatisfied" },
+  { n: 3, emoji: "😐", label: "Okay" },
+  { n: 5, emoji: "🙂", label: "Satisfied" },
+];
+
 function renderVerify(r) {
   const zone = $("#verify-zone");
   const v = r.verification;
   if (v.status && v.status !== "pending") {
     const reopened = v.status !== "fixed";
-    zone.innerHTML = `<div class="verify-result ${reopened ? "reopened" : "closed"}">
-      ${reopened ? "🔁 Reopened" : "✅ Closed"} — reporter said: <b>${esc(v.status.replace(/_/g, " "))}</b>
-      ${r._decision ? `<div class="muted small">${esc(r._decision)}</div>` : ""}
-    </div>`;
+    zone.innerHTML =
+      `<div class="verify-result ${reopened ? "reopened" : "closed"}">
+        ${reopened ? "🔁 Reopened" : "✅ Closed"} — reporter said: <b>${esc(v.status.replace(/_/g, " "))}</b>
+      </div>` + satisfactionBlock(r);
+    wireSatisfaction(r.id);
     return;
   }
   zone.innerHTML = `<div class="verify-btns">
@@ -269,6 +276,23 @@ function renderVerify(r) {
   );
 }
 
+function satisfactionBlock(r) {
+  const s = r.verification.satisfaction;
+  if (s != null) {
+    const hit = SAT.find((x) => x.n === s) || { emoji: "🙂", label: `${s}/5` };
+    return `<div class="sat-done">Satisfaction recorded: ${hit.emoji} <b>${esc(hit.label)}</b></div>`;
+  }
+  return `<div class="sat-ask">
+    <span class="muted small">How satisfied are you with the response?</span>
+    <div class="sat-btns">${SAT.map((x) => `<button class="sat-btn" data-n="${x.n}" title="${x.label}">${x.emoji}</button>`).join("")}</div>
+  </div>`;
+}
+function wireSatisfaction(id) {
+  $("#verify-zone").querySelectorAll(".sat-btn").forEach((b) =>
+    b.addEventListener("click", () => submitSatisfaction(id, Number(b.dataset.n)))
+  );
+}
+
 async function verify(id, status) {
   const zone = $("#verify-zone");
   zone.innerHTML = `<div class="muted small">Verification agent following up…</div>`;
@@ -278,10 +302,23 @@ async function verify(id, status) {
     body: JSON.stringify({ status }),
   }).then((r) => r.json());
   const reopened = out.decision.reopen;
-  zone.innerHTML = `<div class="verify-result ${reopened ? "reopened" : "closed"}">
-    ${reopened ? "🔁 Reopened" : "✅ Closed"} — ${esc(out.decision.message)}
-  </div>`;
+  zone.innerHTML =
+    `<div class="verify-result ${reopened ? "reopened" : "closed"}">
+      ${reopened ? "🔁 Reopened" : "✅ Closed"} — ${esc(out.decision.message)}
+    </div>` + satisfactionBlock(out.record);
+  wireSatisfaction(id);
   loadInbox();
+}
+
+async function submitSatisfaction(id, n) {
+  const out = await fetch(`/api/signals/${id}/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ satisfaction: n }),
+  }).then((r) => r.json());
+  // keep the existing decision/result line, just swap the satisfaction block
+  const ask = $("#verify-zone").querySelector(".sat-ask");
+  if (ask) ask.outerHTML = satisfactionBlock(out.record);
 }
 
 // ---------- inbox ----------

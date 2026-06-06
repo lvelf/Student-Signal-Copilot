@@ -95,8 +95,8 @@ problem. Per signal it is a fixed, predictable set of steps, not an open-ended s
         │                                                                        │
    3 · ACTION — repair crew fixes · EHS signs off · director approves (humans)   │
         │                                                                        │
-   4 · Verification — student confirms: fixed / still happening / worse ─────────┘
-        └─ not fixed → reopen the work order, back to signal
+   4 · Verification — student confirms (fixed / still happening / worse) + rates ─┘
+        └─ not fixed → reopen the work order, back to signal; satisfaction recorded
 ```
 
 ### What each agent does
@@ -137,7 +137,9 @@ the backlog.
   hallucination laundered as fact.
 - **Closed loop, two humans** — the **reporter (student)** verifies the fix; the
   **resolver (repair crew)** executes it. The person who reported it is both the source of
-  truth and the verifier, so the loop genuinely closes. Not fixed → auto-reopen.
+  truth and the verifier, so the loop genuinely closes. Not fixed → auto-reopen. We don't
+  only ask *whether* it was fixed — we then ask a **satisfaction rating**, so closure
+  measures both resolution and the reporter's experience.
 
 ### Security & cost (by design)
 - **AI has no execution power** — agents only read/analyze/draft. Every real action (fix,
@@ -157,7 +159,7 @@ the backlog.
 | `GET /api/signal/stream` | same, streamed as SSE (per-agent steps) |
 | `GET /api/signals` · `/:id` | operator inbox (URGENT-first) + full record |
 | `GET /api/overview` | meta-overview agent: cross-signal systemic-pattern watch |
-| `POST /api/signals/:id/verify` | closure loop: `fixed` / `still_happening` / `worse` |
+| `POST /api/signals/:id/verify` | closure loop: status (`fixed`/`still_happening`/`worse`) + a `satisfaction` rating (1-5) |
 
 ---
 

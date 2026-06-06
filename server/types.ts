@@ -128,7 +128,11 @@ export interface ProcessedRecord {
   llmSource: "claude" | "stub";
   urgent: boolean; // guaranteed URGENT tag (deterministic): high/critical + recurring + still happening
   urgentReason: string;
-  verification: { status: VerificationStatus; history: { status: VerificationStatus; at: string }[] };
+  verification: {
+    status: VerificationStatus;
+    satisfaction: number | null; // 1-5, student satisfaction (asked after they confirm)
+    history: { status: VerificationStatus; at: string }[];
+  };
   createdAt: string;
 }
 
